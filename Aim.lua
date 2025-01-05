@@ -1,92 +1,130 @@
-local player = game.Players.LocalPlayer -- Local player
-local camera = game.Workspace.CurrentCamera -- Camera
-local mouse = player:GetMouse() -- Mouse object
-local UIS = game:GetService("UserInputService") -- To detect mouse button presses
-local humanoid = player.Character and player.Character:WaitForChild("Humanoid") -- Local player's humanoid
-local targetHead = nil -- Stores the player's head that the camera is locked onto
-local isDead = false -- To track if the player is dead
+local Players = game:GetService("Players") -- Get the Players service
+local RunService = game:GetService("RunService") -- For frame updates
+local UserInputService = game:GetService("UserInputService") -- For input detection
+local LocalPlayer = Players.LocalPlayer -- Reference to the local player
+local camera = workspace.CurrentCamera -- Reference to the camera
 
--- Function to detect if the camera is pointing directly at a player's head
-local function getPlayerHeadInSight()
-    local rayOrigin = camera.CFrame.Position -- Camera position
-    local rayDirection = camera.CFrame.LookVector * 1000 -- Ray direction towards where the camera is looking (forward direction)
-    local ray = Ray.new(rayOrigin, rayDirection) -- Create the ray
+local lockKey = Enum.KeyCode.X -- The key to lock onto a target
+local resetKey = Enum.KeyCode.N -- The key to reset the UI manually
+local lockDistance = 200  -- Maximum distance for locking on
+local lockOnTarget = nil -- Current target being locked on
+local label = nil -- Reference to the label
 
-    local hitPart, hitPosition = workspace:FindPartOnRay(ray, player.Character, false, true) -- Raycast to detect any hit
+-- Function to create the label UI
+local function createLabel()
+    local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "LockOnUI"
+    screenGui.Parent = playerGui
 
-    -- Check if the hit part belongs to a player's head
-    if hitPart and hitPart.Parent and hitPart.Parent:FindFirstChild("Humanoid") then
-        local humanoid = hitPart.Parent.Humanoid
-        local targetPlayer = game.Players:GetPlayerFromCharacter(hitPart.Parent)
-        if targetPlayer and (targetPlayer.Team.Name == "Class-D" or targetPlayer.Team.Name == "Chaos Insurgency") then
-            return hitPart.Parent.Head -- Return the player's head
+    label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0, 300, 0, 50) -- Width: 300px, Height: 50px
+    label.Position = UDim2.new(0.5, -150, 0.1, 0) -- Centered horizontally at the top
+    label.BackgroundTransparency = 1 -- Transparent background
+    label.TextColor3 = Color3.fromRGB(255, 255, 255) -- White text
+    label.Font = Enum.Font.SourceSansBold
+    label.TextSize = 24
+    label.Text = "No one in sight"
+    label.Parent = screenGui
+end
+
+-- Function to check if a player is in the camera's view
+local function getPlayerInView()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Team then
+            if player.Team.Name == "Class-D" or player.Team.Name == "Chaos Insurgency" then
+                local character = player.Character
+                if character then
+                    local head = character:FindFirstChild("Head")
+                    if head then
+                        local screenPosition, onScreen = camera:WorldToViewportPoint(head.Position) -- Get screen position
+                        local distance = (head.Position - camera.CFrame.Position).Magnitude
+
+                        if onScreen and distance <= lockDistance then
+                            -- Check if the head is close to the center of the screen
+                            local viewportCenter = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+                            local headScreenPosition = Vector2.new(screenPosition.X, screenPosition.Y)
+                            local distanceFromCenter = (headScreenPosition - viewportCenter).Magnitude
+
+                            if distanceFromCenter <= 100 then -- Adjust the tolerance here
+                                return player
+                            end
+                        end
+                    end
+                end
+            end
         end
     end
-    return nil -- No valid target found
+    return nil
 end
 
--- Function to lock the camera to the target head
-local function lockCameraToHead(head)
-    if head then
-        -- Set the camera to focus on the target's head position
-        camera.CameraSubject = head
-        camera.CFrame = CFrame.new(camera.CFrame.Position, head.Position) -- Look at the target's head
-    else
-        -- Reset to normal camera behavior when no head is targeted
-        camera.CameraSubject = player.Character.Humanoid
+-- Function to lock onto a target
+local function lockOntoTarget(target)
+    if not target then return end
+    lockOnTarget = target
+
+    local character = target.Character
+    if character then
+        local head = character:FindFirstChild("Head")
+        if head then
+            -- Smoothly transition the camera to focus on the target's head
+            RunService:BindToRenderStep("LockOnCamera", Enum.RenderPriority.Camera.Value, function()
+                local cameraCFrame = CFrame.new(camera.CFrame.Position, head.Position)
+                camera.CFrame = cameraCFrame
+            end)
+        end
     end
 end
 
--- Function to handle right mouse button hold and release
-local function onMouseInput(input, gameProcessed)
+-- Function to stop locking onto a target
+local function stopLockOn()
+    lockOnTarget = nil
+    RunService:UnbindFromRenderStep("LockOnCamera") -- Stop adjusting the camera
+end
+
+-- Handle key press to lock onto a target
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
-
-    if input.UserInputType == Enum.UserInputType.MouseButton2 then
-        if input.UserInputState == Enum.UserInputState.Begin then
-            -- Mouse button pressed, lock onto the head of the player in sight
-            targetHead = getPlayerHeadInSight()
-            lockCameraToHead(targetHead)
-        elseif input.UserInputState == Enum.UserInputState.End then
-            -- Mouse button released, reset camera to the default
-            targetHead = nil
-            camera.CameraSubject = player.Character.Humanoid
+    if input.KeyCode == lockKey then
+        if lockOnTarget then
+            stopLockOn() -- Stop locking if already locked
+            label.Text = "No one in sight"
+        else
+            local target = getPlayerInView() -- Get the target in view
+            if target then
+                lockOntoTarget(target) -- Lock onto the target
+                label.Text = "Locked on to: " .. target.Name .. " (" .. target.Team.Name .. ")"
+            else
+                label.Text = "No one in sight"
+            end
         end
-    end
-end
-
--- Function to handle "X" key press and reset camera if no one in FOV
-local function onKeyPress(input, gameProcessed)
-    if gameProcessed then return end
-
-    if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.X then
-        -- If no player head is in sight, reset camera
-        if not getPlayerHeadInSight() then
-            targetHead = nil
-            camera.CameraSubject = player.Character.Humanoid
+    elseif input.KeyCode == resetKey then
+        -- Reset the UI when "N" is pressed
+        if not label then
+            createLabel() -- Create label if it doesn't exist
         end
+        label.Text = "No one in sight"
     end
-end
-
--- Function to stop locking when the local player dies
-local function onPlayerDeath()
-    isDead = true
-    targetHead = nil
-    camera.CameraSubject = player.Character.Humanoid -- Reset camera to the local player's humanoid
-end
-
--- Connect the mouse input to the function
-UIS.InputChanged:Connect(onMouseInput)
-
--- Connect the keyboard input for "X" key press
-UIS.InputBegan:Connect(onKeyPress)
-
--- Listen for local player death
-if humanoid then
-    humanoid.Died:Connect(onPlayerDeath)
-end
-
--- Reset the death state if the player respawns
-player.CharacterAdded:Connect(function(newCharacter)
-    humanoid = newCharacter:WaitForChild("Humanoid")
-    isDead = false
 end)
+
+-- Clean up if the target dies or leaves
+Players.PlayerRemoving:Connect(function(player)
+    if player == lockOnTarget then
+        stopLockOn()
+        label.Text = "No one in sight"
+    end
+end)
+
+-- Reset lock and recreate the label on respawn
+LocalPlayer.CharacterAdded:Connect(function()
+    stopLockOn() -- Reset lock if the local player's character respawns
+    if not label then
+        createLabel() -- Recreate label if it doesn't exist
+    end
+    label.Text = "No one in sight"
+end)
+
+-- Ensure label is created on first start
+if not label then
+    createLabel()
+end
