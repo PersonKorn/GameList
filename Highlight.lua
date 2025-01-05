@@ -1,100 +1,76 @@
-local player = game.Players.LocalPlayer -- Local player
-local highlightRadius = 200 -- Radius of highlighting
-local classDColor = Color3.fromRGB(255, 165, 0) -- Class-D color (orange)
-local chaosInsurgencyColor = Color3.fromRGB(255, 255, 255) -- Chaos Insurgency color (white)
-local redColor = Color3.fromRGB(255, 0, 0) -- Red color for dangerous Class-D or Chaos with weapons
-local blackColor = Color3.fromRGB(0, 0, 0) -- Color for dead players
-local inventoryCheckInterval = 5 -- Interval to check inventory and hotbar
+local Players = game:GetService("Players")
+local Teams = game:GetService("Teams")
+local RunService = game:GetService("RunService")
 
--- Tools that should trigger red highlighting
-local dangerousWeapons = {"M4", "M249", "UMP_45", "Crowbar"}
+local SCAN_RADIUS = 200 -- Radius for scanning
+local CLASS_D_NAME = "Class-D"
+local CHAOS_INSURGENCY_NAME = "Chaos Insurgency"
 
--- Function to check if a player is in the radius
-local function isInRadius(player1, player2)
-    return (player1.HumanoidRootPart.Position - player2.HumanoidRootPart.Position).Magnitude <= highlightRadius
+local HIGHLIGHT_SETTINGS = {
+    ClassD = {HighlightColor = Color3.new(1, 0.5, 0), FillColor = Color3.new(1, 0.5, 0)}, -- Orange
+    Chaos = {HighlightColor = Color3.new(1, 1, 1), FillColor = Color3.new(1, 1, 1)}, -- White
+    DangerousClassD = {HighlightColor = Color3.new(1, 0, 0), FillColor = Color3.new(1, 0, 0)}, -- Red
+    Dead = {HighlightColor = Color3.new(0, 0, 0), FillColor = Color3.new(0, 0, 0)}, -- Black
+}
+
+local function isDangerous(item) -- Check if the item is dangerous
+    return item:IsA("Tool") and (item.Name == "M4" or item.Name == "M249" or item.Name == "UMP_45" or item.Name == "Crowbar")
 end
 
--- Function to check for dangerous weapons in the inventory or hotbar
-local function hasDangerousWeapons(player)
-    local dangerous = false
+local function scanPlayer(player)
     local character = player.Character
-    if character then
-        local backpack = player.Backpack
-        local hotbar = player.PlayerGui:FindFirstChild("Hotbar") -- Assume there’s a hotbar GUI
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end -- Skip if character is invalid
 
-        -- Check backpack and hotbar for dangerous weapons
-        for _, item in ipairs(backpack:GetChildren()) do
-            if item:IsA("Tool") and table.find(dangerousWeapons, item.Name) then
-                dangerous = true
-                break
-            end
-        end
+    local isDead = character:FindFirstChild("Humanoid") and character.Humanoid.Health <= 0 -- Check if the player is dead
+    if isDead then
+        return "Dead"
+    end
 
-        if hotbar then
-            for _, item in ipairs(hotbar:GetChildren()) do
-                if item:IsA("Tool") and table.find(dangerousWeapons, item.Name) then
-                    dangerous = true
-                    break
-                end
-            end
+    local inventory = player:FindFirstChildOfClass("Backpack") or character -- Search in both backpack and character
+    for _, item in ipairs(inventory:GetChildren()) do
+        if isDangerous(item) then
+            return "DangerousClassD"
         end
     end
-    return dangerous
+
+    return "ClassD"
 end
 
--- Function to update the highlight color for players based on team and inventory
-local function updatePlayerHighlights()
-    local playerList = {} -- To store names for the right-side list
-    for _, p in ipairs(game.Players:GetPlayers()) do
-        if p.Team then
-            -- Check if within radius
-            if isInRadius(player, p) then
-                local highlightColor = nil
-                local isDangerous = false
-                -- Check team and dangerous weapons
-                if p.Team.Name == "Class-D" then
-                    highlightColor = classDColor
-                    isDangerous = hasDangerousWeapons(p)
-                elseif p.Team.Name == "Chaos Insurgency" then
-                    highlightColor = chaosInsurgencyColor
-                    isDangerous = false -- Chaos Insurgency isn't flagged for weapons scanning
-                end
+local function highlightPlayer(player, highlightType)
+    local character = player.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end -- Skip invalid characters
 
-                -- Override with red color if dangerous
-                if isDangerous then
-                    highlightColor = redColor
-                end
+    local highlight = character:FindFirstChildOfClass("Highlight") or Instance.new("Highlight")
+    highlight.Parent = character
+    highlight.Adornee = character
 
-                -- Highlight the player (assumes you have some way to highlight players)
-                -- Example: p.Character.HumanoidRootPart.BillboardGui.Color = highlightColor
+    local settings = HIGHLIGHT_SETTINGS[highlightType] or {}
+    highlight.FillColor = settings.FillColor or Color3.new(1, 1, 1) -- Default to white if not set
+    highlight.FillTransparency = 0 -- Fill is not transparent
+    highlight.OutlineColor = settings.HighlightColor or Color3.new(1, 1, 1) -- Default to white if not set
+    highlight.OutlineTransparency = 0.5 -- Outline is transparent
+end
 
-                -- Add to player list on the right side
-                local skullSymbol = (p.Team.Name == "Chaos Insurgency" or isDangerous) and "💀" or ""
-                table.insert(playerList, string.format("%s (%s) - %s#", p.Name, p.Team.Name, skullSymbol))
-            end
+RunService.Heartbeat:Connect(function()
+    for _, player in ipairs(Players:GetPlayers()) do
+        local character = player.Character
+        if character and character:FindFirstChild("HumanoidRootPart") then
+            for _, otherPlayer in ipairs(Players:GetPlayers()) do
+                if player ~= otherPlayer then
+                    local otherCharacter = otherPlayer.Character
+                    if otherCharacter and otherCharacter:FindFirstChild("HumanoidRootPart") then
+                        local distance = (character.HumanoidRootPart.Position - otherCharacter.HumanoidRootPart.Position).Magnitude
 
-            -- If the player dies, change their color to black
-            p.CharacterAdded:Connect(function(character)
-                local humanoid = character:WaitForChild("Humanoid")
-                humanoid.Died:Connect(function()
-                    -- Change character color to black on death
-                    for _, part in ipairs(character:GetChildren()) do
-                        if part:IsA("MeshPart") or part:IsA("Part") then
-                            part.Color = blackColor
+                        if distance <= SCAN_RADIUS then
+                            local team = otherPlayer.Team
+                            if team and (team.Name == CLASS_D_NAME or team.Name == CHAOS_INSURGENCY_NAME) then
+                                local highlightType = scanPlayer(otherPlayer)
+                                highlightPlayer(otherPlayer, highlightType)
+                            end
                         end
                     end
-                end)
-            end)
+                end
+            end
         end
     end
-
-    -- Update the display list with player names (Right-side list)
-    -- Placeholder for list UI update (this can vary based on your GUI system)
-    -- Example: someLabel.Text = table.concat(playerList, "\n")
-end
-
--- Scan Class-D's inventory and hotbar every 5 seconds
-while true do
-    updatePlayerHighlights() -- Check and update highlights
-    wait(inventoryCheckInterval) -- Wait before scanning again
-end
+end)
