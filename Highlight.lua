@@ -3,6 +3,7 @@ local highlightRadius = 200 -- Radius of highlighting
 local classDColor = Color3.fromRGB(255, 165, 0) -- Class-D color (orange)
 local chaosInsurgencyColor = Color3.fromRGB(255, 255, 255) -- Chaos Insurgency color (white)
 local redColor = Color3.fromRGB(255, 0, 0) -- Red color for dangerous Class-D or Chaos with weapons
+local blackColor = Color3.fromRGB(0, 0, 0) -- Color for dead players
 local inventoryCheckInterval = 5 -- Interval to check inventory and hotbar
 
 -- Tools that should trigger red highlighting
@@ -65,13 +66,25 @@ local function updatePlayerHighlights()
                 end
 
                 -- Highlight the player (assumes you have some way to highlight players)
-                -- Placeholder for the actual highlight logic (this can vary based on your highlighting system)
                 -- Example: p.Character.HumanoidRootPart.BillboardGui.Color = highlightColor
 
                 -- Add to player list on the right side
                 local skullSymbol = (p.Team.Name == "Chaos Insurgency" or isDangerous) and "💀" or ""
                 table.insert(playerList, string.format("%s (%s) - %s#", p.Name, p.Team.Name, skullSymbol))
             end
+
+            -- If the player dies, change their color to black
+            p.CharacterAdded:Connect(function(character)
+                local humanoid = character:WaitForChild("Humanoid")
+                humanoid.Died:Connect(function()
+                    -- Change character color to black on death
+                    for _, part in ipairs(character:GetChildren()) do
+                        if part:IsA("MeshPart") or part:IsA("Part") then
+                            part.Color = blackColor
+                        end
+                    end
+                end)
+            end)
         end
     end
 
