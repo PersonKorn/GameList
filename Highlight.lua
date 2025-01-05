@@ -46,9 +46,9 @@ local function highlightPlayer(player, highlightType)
 
     local settings = HIGHLIGHT_SETTINGS[highlightType] or {}
     highlight.FillColor = settings.FillColor or Color3.new(1, 1, 1) -- Default to white if not set
-    highlight.FillTransparency = 0.8 -- Fill is not transparent
+    highlight.FillTransparency = 0.95 -- Set to a high value for barely visible fill
     highlight.OutlineColor = settings.HighlightColor or Color3.new(1, 1, 1) -- Default to white if not set
-    highlight.OutlineTransparency = 0.8 -- Outline is transparent
+    highlight.OutlineTransparency = 0.95 -- Set to a high value for barely visible outline
 end
 
 RunService.Heartbeat:Connect(function()
